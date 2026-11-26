@@ -1,6 +1,7 @@
 const express = require("express");
 const path = require("path");
 const cors = require("cors");
+const connectDB = require("./config/connectDB");
 
 const productRoutes = require("./routes/productRoutes");
 const userRoutes = require("./routes/userRoutes");
@@ -26,6 +27,20 @@ app.get("/", (req, res) => {
     version: "2.0.0",
     docs: "See spec.md",
   });
+});
+
+// Serverless hosts (Vercel) load this file without running index.js, so connect here.
+// Cached per instance; a failed attempt is retried on the next request.
+let dbReady = null;
+app.use(async (req, res, next) => {
+  try {
+    if (!dbReady) dbReady = connectDB();
+    await dbReady;
+    next();
+  } catch (error) {
+    dbReady = null;
+    return res.status(503).json({ msg: `Database unavailable: ${error.message}` });
+  }
 });
 
 app.use("/product", productRoutes);
