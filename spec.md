@@ -64,7 +64,7 @@ shopberrystudio backend/
 |--------|------|--------|
 | POST | `/user/register` | `{ name, email, password }` → `{ token, user }` |
 | POST | `/user/login` | `{ email, password }` → `{ token, user }` |
-| POST | `/user/google` | Demo `{ email }` → `{ token, user }` |
+| POST | `/user/google` | `{ credential }` (Google ID token, verified against `GOOGLE_CLIENT_ID`) → `{ token, user }`. Email-only demo works only when `GOOGLE_CLIENT_ID` is unset and `NODE_ENV` is not `production`. |
 | GET | `/user/getcurrentuser` | Bearer |
 | PATCH | `/user/me/notifications` | `{ notif }` |
 | POST | `/user/me/favorites/:productId` | Toggle |

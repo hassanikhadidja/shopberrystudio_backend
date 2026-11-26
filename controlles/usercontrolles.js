@@ -70,27 +70,87 @@ exports.Login = async (req, res) => {
   }
 };
 
-/** Demo Google continue — email only, same as the Berry Studio frontend modal. */
+function nameFromEmail(email) {
+  return (email.split("@")[0] || "Guest")
+    .replace(/[._-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+const GOOGLE_ISSUERS = new Set(["accounts.google.com", "https://accounts.google.com"]);
+
+/**
+ * Verifies a Google ID token (the `credential` from Google Identity Services).
+ * Google checks the signature and expiry; we check audience, issuer and email.
+ */
+async function verifyGoogleCredential(credential) {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const response = await fetch(
+    `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`
+  );
+  const info = await response.json().catch(() => ({}));
+
+  if (!response.ok) throw new Error("Google could not verify this sign-in");
+  if (info.aud !== clientId) throw new Error("This token was issued for another app");
+  if (!GOOGLE_ISSUERS.has(info.iss)) throw new Error("Unexpected token issuer");
+  if (info.email_verified !== true && info.email_verified !== "true") {
+    throw new Error("Your Google email is not verified");
+  }
+  if (!info.email) throw new Error("Google did not share an email address");
+
+  return { email: String(info.email).toLowerCase(), name: String(info.name || "").trim() };
+}
+
+/**
+ * Google sign-in.
+ * - Production / GOOGLE_CLIENT_ID set: requires a verified Google ID token in `credential`.
+ * - Local dev without GOOGLE_CLIENT_ID: falls back to the old email-only demo.
+ */
 exports.GoogleContinue = async (req, res) => {
   try {
-    const email = String(req.body.email || "")
-      .trim()
-      .toLowerCase();
+    const hasClientId = Boolean(process.env.GOOGLE_CLIENT_ID);
+    const demoAllowed = !hasClientId && process.env.NODE_ENV !== "production";
+
+    let email;
+    let name = "";
+
+    if (req.body.credential) {
+      if (!hasClientId) {
+        return res.status(503).json({ msg: "Google sign-in is not configured (GOOGLE_CLIENT_ID)" });
+      }
+      try {
+        ({ email, name } = await verifyGoogleCredential(String(req.body.credential)));
+      } catch (error) {
+        return res.status(401).json({ msg: error.message });
+      }
+    } else if (demoAllowed) {
+      email = String(req.body.email || "")
+        .trim()
+        .toLowerCase();
+    } else {
+      return res.status(400).json({ msg: "Google credential is required" });
+    }
+
     if (!isValidEmail(email)) return res.status(400).json({ msg: "Should be format email" });
 
     let user = await User.findOne({ email });
     if (!user) {
-      // Match frontend googleName()
-      const name = (email.split("@")[0] || "Guest")
-        .replace(/[._-]+/g, " ")
-        .replace(/\b\w/g, (letter) => letter.toUpperCase());
-      user = new User({ email, name, password: "", google: true, role: "Client" });
+      user = new User({
+        email,
+        name: name || nameFromEmail(email),
+        password: "",
+        google: true,
+        role: "Client",
+      });
+      await user.save();
+    } else if (!user.google && req.body.credential) {
+      // Same verified email as an existing account: link it to Google.
+      user.google = true;
       await user.save();
     }
 
     const token = signToken(user);
     return res.status(200).json({
-      msg: "Signed in with Google (demo)",
+      msg: req.body.credential ? "Signed in with Google" : "Signed in with Google (demo)",
       token,
       user: toFrontendUser(user),
     });
