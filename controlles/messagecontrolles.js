@@ -1,4 +1,5 @@
 const Message = require("../models/message");
+const notifyOwner = require("../utils/notify");
 
 const THREE_DAYS = 3 * 24 * 60 * 60 * 1000;
 
@@ -47,6 +48,12 @@ exports.SendMessage = async (req, res) => {
       text,
     });
     await message.save();
+    void notifyOwner({
+      type: "message",
+      name: req.user?.name,
+      email: req.user?.email,
+      message: text,
+    });
     return res.status(201).json({
       msg: "Sent. Expect a reply in about 2 hours",
       message: toFrontend(message),

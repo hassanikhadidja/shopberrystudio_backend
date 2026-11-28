@@ -1,10 +1,18 @@
+/** Accepts an array or a newline-separated string, one point per line. */
+function toPoints(value) {
+  const list = Array.isArray(value) ? value : String(value ?? "").split(/\r?\n/);
+  return list
+    .map((line) => String(line).replace(/^[\s*•★-]+/, "").trim())
+    .filter(Boolean);
+}
+
 /** Map a Product document to the Berry Studio frontend Product shape. */
 function toFrontendProduct(doc) {
   const p = doc.toObject ? doc.toObject() : doc;
   return {
     id: p.id,
     t: p.title,
-    r: p.ratingLabel || "0 (0)",
+    r: p.ratingLabel || "New",
     p: p.price,
     o: p.originalPrice || 0,
     e: p.emoji || "🎨",
@@ -16,6 +24,10 @@ function toFrontendProduct(doc) {
     pdf: p.pdfCount || 0,
     tags: p.tags || [],
     d: p.description || "",
+    included: p.included || [],
+    perfect: p.perfect || [],
+    benefits: p.benefits || [],
+    added: p.createdAt ? new Date(p.createdAt).getTime() : undefined,
     cu: Boolean(p.custom),
     sales: p.salesCount || 0,
     _id: p._id,
@@ -45,6 +57,9 @@ function fromFrontendBody(body = {}) {
         : body.tags;
   }
   if (body.d != null || body.description != null) data.description = body.description ?? body.d;
+  if (body.included != null) data.included = toPoints(body.included);
+  if (body.perfect != null) data.perfect = toPoints(body.perfect);
+  if (body.benefits != null) data.benefits = toPoints(body.benefits);
   if (body.b != null || body.bestseller != null) {
     data.bestseller = body.bestseller === true || body.bestseller === "true" || body.b === true || body.b === "true";
   }

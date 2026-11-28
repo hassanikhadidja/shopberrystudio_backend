@@ -4,6 +4,7 @@ const User = require("../models/user");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { toFrontendUser } = require("../utils/productMap");
+const notifyOwner = require("../utils/notify");
 
 function signToken(user) {
   return jwt.sign({ _id: user._id }, process.env.secretKey, { expiresIn: "30d" });
@@ -34,6 +35,7 @@ exports.Adduser = async (req, res) => {
       role: "Client",
     });
     await user.save();
+    void notifyOwner({ type: "register", name: user.name, email: user.email });
     const token = signToken(user);
     return res.status(201).json({
       msg: "Register success",
@@ -75,6 +77,8 @@ function nameFromEmail(email) {
     .replace(/[._-]+/g, " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
+
+const ADMIN_EMAIL = "khadidja.khaoila.hassani@gmail.com";
 
 const GOOGLE_ISSUERS = new Set(["accounts.google.com", "https://accounts.google.com"]);
 
@@ -133,19 +137,28 @@ exports.GoogleContinue = async (req, res) => {
     if (!isValidEmail(email)) return res.status(400).json({ msg: "Should be format email" });
 
     let user = await User.findOne({ email });
+    const admin = email === ADMIN_EMAIL;
     if (!user) {
       user = new User({
         email,
         name: name || nameFromEmail(email),
         password: "",
         google: true,
-        role: "Client",
+        role: admin ? "Admin" : "Client",
       });
       await user.save();
-    } else if (!user.google && req.body.credential) {
-      // Same verified email as an existing account: link it to Google.
-      user.google = true;
-      await user.save();
+      void notifyOwner({ type: "register", name: user.name, email: user.email });
+    } else {
+      let changed = false;
+      if (admin && user.role !== "Admin") {
+        user.role = "Admin";
+        changed = true;
+      }
+      if (req.body.credential && !user.google) {
+        user.google = true;
+        changed = true;
+      }
+      if (changed) await user.save();
     }
 
     const token = signToken(user);

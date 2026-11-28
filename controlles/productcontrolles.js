@@ -1,4 +1,5 @@
 const Product = require("../models/product");
+const Review = require("../models/review");
 const cloudinary = require("../config/cloudinary");
 const nextProductId = require("../utils/nextProductId");
 const { toFrontendProduct, fromFrontendBody } = require("../utils/productMap");
@@ -69,10 +70,20 @@ exports.AddProduct = async (req, res) => {
   }
 };
 
+/** "4.5 (12)" per product id, computed from the real reviews. */
+async function ratingLabels() {
+  const rows = await Review.aggregate([
+    { $group: { _id: "$productId", avg: { $avg: "$rating" }, count: { $sum: 1 } } },
+  ]);
+  return new Map(rows.map((row) => [row._id, `${row.avg.toFixed(1)} (${row.count})`]));
+}
+
 exports.GetProducts = async (req, res) => {
   try {
-    const products = await Product.find().sort({ id: 1 });
-    return res.status(200).json(products.map(toFrontendProduct));
+    const [products, labels] = await Promise.all([Product.find().sort({ id: 1 }), ratingLabels()]);
+    return res.status(200).json(
+      products.map((product) => ({ ...toFrontendProduct(product), r: labels.get(product.id) || "New" })),
+    );
   } catch (error) {
     return res.status(503).json({ msg: error.message });
   }
@@ -85,7 +96,8 @@ exports.GetOneProduct = async (req, res) => {
       ? await Product.findOne({ id: Number(key) })
       : await Product.findById(key);
     if (!product) return res.status(404).json({ msg: "Product not found" });
-    return res.status(200).json(toFrontendProduct(product));
+    const labels = await ratingLabels();
+    return res.status(200).json({ ...toFrontendProduct(product), r: labels.get(product.id) || "New" });
   } catch (error) {
     return res.status(503).json({ msg: error.message });
   }
@@ -131,10 +143,12 @@ exports.UpdateProduct = async (req, res) => {
 exports.DeleteProduct = async (req, res) => {
   try {
     const key = req.params.id;
-    const result = /^\d+$/.test(key)
-      ? await Product.deleteOne({ id: Number(key) })
-      : await Product.deleteOne({ _id: key });
-    if (result.deletedCount === 0) return res.status(404).json({ msg: "Product not found" });
+    const target = /^\d+$/.test(key)
+      ? await Product.findOne({ id: Number(key) }).select("id").lean()
+      : await Product.findById(key).select("id").lean();
+    if (!target) return res.status(404).json({ msg: "Product not found" });
+    await Product.deleteOne({ _id: target._id });
+    await Review.deleteMany({ productId: target.id });
     return res.status(202).json({ msg: "product deleted" });
   } catch (error) {
     return res.status(503).json({ msg: error.message });
