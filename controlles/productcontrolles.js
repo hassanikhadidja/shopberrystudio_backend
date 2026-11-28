@@ -64,11 +64,13 @@ exports.AddProduct = async (req, res) => {
 
     const product = new Product(data);
     await product.save();
-    return res.status(201).json({ msg: "product added", product: toFrontendProduct(product) });
+    return res.status(201).json({ msg: "product added", product: toFrontendProduct(product, { withFileLinks: true }) });
   } catch (error) {
     return res.status(503).json({ msg: error.message });
   }
 };
+
+const isAdminUser = (user) => user?.role === "Admin" || user?.role === "admin";
 
 /** "4.5 (12)" per product id, computed from the real reviews. */
 async function ratingLabels() {
@@ -81,8 +83,12 @@ async function ratingLabels() {
 exports.GetProducts = async (req, res) => {
   try {
     const [products, labels] = await Promise.all([Product.find().sort({ id: 1 }), ratingLabels()]);
+    const withFileLinks = isAdminUser(req.user);
     return res.status(200).json(
-      products.map((product) => ({ ...toFrontendProduct(product), r: labels.get(product.id) || "New" })),
+      products.map((product) => ({
+        ...toFrontendProduct(product, { withFileLinks }),
+        r: labels.get(product.id) || "New",
+      })),
     );
   } catch (error) {
     return res.status(503).json({ msg: error.message });
@@ -97,7 +103,10 @@ exports.GetOneProduct = async (req, res) => {
       : await Product.findById(key);
     if (!product) return res.status(404).json({ msg: "Product not found" });
     const labels = await ratingLabels();
-    return res.status(200).json({ ...toFrontendProduct(product), r: labels.get(product.id) || "New" });
+    return res.status(200).json({
+      ...toFrontendProduct(product, { withFileLinks: isAdminUser(req.user) }),
+      r: labels.get(product.id) || "New",
+    });
   } catch (error) {
     return res.status(503).json({ msg: error.message });
   }
@@ -112,6 +121,13 @@ exports.UpdateProduct = async (req, res) => {
     if (!existing) return res.status(404).json({ msg: "Product not found" });
 
     const updateData = fromFrontendBody(req.body);
+    // A file sent back without its address keeps the stored one, so an edit can never blank a paid file.
+    if (Array.isArray(updateData.files)) {
+      const stored = new Map((existing.files || []).map((file) => [file.id, file.href]));
+      updateData.files = updateData.files.map((file) =>
+        file.href ? file : { ...file, href: stored.get(file.id) || file.href }
+      );
+    }
     let keepImgs = req.body.keepImgs || req.body.imgs || [];
     if (typeof keepImgs === "string") {
       try {
@@ -134,7 +150,7 @@ exports.UpdateProduct = async (req, res) => {
 
     Object.assign(existing, updateData);
     await existing.save();
-    return res.status(202).json({ msg: "Update success", product: toFrontendProduct(existing) });
+    return res.status(202).json({ msg: "Update success", product: toFrontendProduct(existing, { withFileLinks: true }) });
   } catch (error) {
     return res.status(503).json({ msg: error.message });
   }

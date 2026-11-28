@@ -6,9 +6,18 @@ function toPoints(value) {
     .filter(Boolean);
 }
 
-/** Map a Product document to the Berry Studio frontend Product shape. */
-function toFrontendProduct(doc) {
+/**
+ * Map a Product document to the Berry Studio frontend Product shape.
+ * File addresses are the paid content, so they are left out unless `withFileLinks` is set
+ * (admin responses only). Customers get a file through GET /order/download/:productId/:fileId.
+ */
+function toFrontendProduct(doc, { withFileLinks = false } = {}) {
   const p = doc.toObject ? doc.toObject() : doc;
+  const files = (p.files || []).map((file) =>
+    withFileLinks
+      ? file
+      : { id: file.id, name: file.name, kind: file.kind, source: file.source, size: file.size, href: "" }
+  );
   return {
     id: p.id,
     t: p.title,
@@ -19,7 +28,7 @@ function toFrontendProduct(doc) {
     c: p.gradient || "linear-gradient(160deg,#cfd9ee,#f3ece0)",
     b: Boolean(p.bestseller),
     imgs: p.images || [],
-    files: p.files || [],
+    files,
     code: p.code || `BS-${String(p.id).padStart(3, "0")}`,
     pdf: p.pdfCount || 0,
     tags: p.tags || [],

@@ -27,6 +27,9 @@ const orderSchema = new mongoose.Schema(
       default: "paid",
     },
     note: { type: String, default: "" },
+    // Set for orders created from a Paddle transaction.completed webhook.
+    // Unique so a retried webhook can never create the same order twice.
+    paddleTransactionId: { type: String, unique: true, sparse: true },
   },
   { timestamps: true }
 );

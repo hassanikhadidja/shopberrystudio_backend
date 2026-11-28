@@ -106,7 +106,10 @@ exports.CreateOrder = async (req, res) => {
 
 exports.GetMyPurchases = async (req, res) => {
   try {
-    const orders = await Order.find({ userId: req.user._id }).sort({ createdAt: -1 });
+    const email = String(req.user.email || "").trim().toLowerCase();
+    const orders = await Order.find({
+      $or: [{ userId: req.user._id }, ...(email ? [{ customerEmail: email }] : [])],
+    }).sort({ createdAt: -1 });
     const purchases = orders.flatMap(purchaseShape);
     return res.status(200).json({ orders, purchases });
   } catch (error) {
@@ -114,21 +117,54 @@ exports.GetMyPurchases = async (req, res) => {
   }
 };
 
+const isAdminUser = (user) => user?.role === "Admin" || user?.role === "admin";
+
+/** Product ids this user has paid for. Matches by account, or by email for orders made before sign-in. */
+async function ownedProductIds(user) {
+  const email = String(user.email || "").trim().toLowerCase();
+  const orders = await Order.find({
+    $or: [{ userId: user._id }, ...(email ? [{ customerEmail: email }] : [])],
+    status: { $in: ["paid", "delivered"] },
+  });
+  return new Set(orders.flatMap((order) => order.items.map((item) => item.productId)));
+}
+
 exports.GetMyDownloads = async (req, res) => {
   try {
-    const orders = await Order.find({
-      userId: req.user._id,
-      status: { $in: ["paid", "delivered"] },
-    });
-    const productIds = [...new Set(orders.flatMap((o) => o.items.map((i) => i.productId)))];
-    const products = await Product.find({ id: { $in: productIds } });
+    const owned = await ownedProductIds(req.user);
+    const products = await Product.find({ id: { $in: [...owned] } });
+    // File names only. Addresses are handed out one at a time by DownloadFile.
     const downloads = products.map((p) => ({
       title: p.title,
       detail: p.pdfCount ? `PDF · ${p.pdfCount} file(s)` : "Digital download",
-      files: p.files || [],
+      files: (p.files || []).map((file) => ({
+        id: file.id,
+        name: file.name,
+        kind: file.kind,
+        size: file.size,
+      })),
       productId: p.id,
     }));
     return res.status(200).json(downloads);
+  } catch (error) {
+    return res.status(503).json({ msg: error.message });
+  }
+};
+
+/** Returns the address of one file, but only to someone who bought the product (or an admin). */
+exports.DownloadFile = async (req, res) => {
+  try {
+    const productId = Number(req.params.productId);
+    if (!isAdminUser(req.user)) {
+      const owned = await ownedProductIds(req.user);
+      if (!owned.has(productId)) {
+        return res.status(403).json({ msg: "Buy this product to download its files" });
+      }
+    }
+    const product = await Product.findOne({ id: productId });
+    const file = product?.files?.find((item) => item.id === req.params.fileId);
+    if (!file) return res.status(404).json({ msg: "File not found" });
+    return res.status(200).json({ url: file.href, name: file.name });
   } catch (error) {
     return res.status(503).json({ msg: error.message });
   }

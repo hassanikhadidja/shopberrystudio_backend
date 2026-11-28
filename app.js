@@ -17,6 +17,13 @@ app.use(
     credentials: true,
   })
 );
+// Paddle signs the exact raw body, so this route must run before express.json parses it.
+app.post(
+  "/paddle/webhook",
+  express.raw({ type: "*/*", limit: "1mb" }),
+  require("./controlles/paddlewebhookcontrolles").PaddleWebhook
+);
+
 app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));

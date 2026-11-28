@@ -3,6 +3,7 @@ const router = express.Router();
 const controlles = require("../controlles/productcontrolles");
 const upload = require("../utils/multer");
 const { Auth } = require("../middlewares/isAuth");
+const { optionalAuth } = require("../middlewares/optionalAuth");
 const isAdmin = require("../middlewares/isAdmin");
 
 /** Accept JSON body (dashboard) or multipart uploads (Cloudinary). */
@@ -17,8 +18,9 @@ function optionalUpload(req, res, next) {
   next();
 }
 
-router.get("/", controlles.GetProducts);
-router.get("/:id", controlles.GetOneProduct);
+// optionalAuth lets an admin's token reveal file addresses; everyone else gets them stripped.
+router.get("/", optionalAuth, controlles.GetProducts);
+router.get("/:id", optionalAuth, controlles.GetOneProduct);
 
 router.post("/", Auth, isAdmin, optionalUpload, controlles.AddProduct);
 router.patch("/:id", Auth, isAdmin, optionalUpload, controlles.UpdateProduct);
